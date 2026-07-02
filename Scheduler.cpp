@@ -12,11 +12,8 @@
 
 using namespace std;
 
-
 #define DEBUG (false)
-#define MAX_ITER (100000)
-
-class Employee;
+#define MAX_ITER (50000)
 
 enum days {
 	MONDAY,
@@ -54,6 +51,7 @@ public:
 	bool is_job_assignable(Turno* prev_day, int repeats, int forced_job_repeats) {
 
 		if (prev_day == NULL) return true;
+
 		if (repeats >= max_repeats) return false;
 
 		if (prev_day->next_day_force_turno != nullptr) {
@@ -216,6 +214,7 @@ bool check_feasibility(Schedule& sched, vector<Turno*>& turni) {
 
 	// 1. Turno-level sanity: dangling forzatura references, and max_people
 	//    bounds that no employee count could ever satisfy.
+	float max_ore = 0;
 	for (auto t : turni) {
 		if (t->next_day_force != "" && t->next_day_force_turno == nullptr) {
 			fail("Turno '" + t->descr + "' has next-day forzatura '" + t->next_day_force + "' which does not match any known turno ID.");
@@ -226,7 +225,17 @@ bool check_feasibility(Schedule& sched, vector<Turno*>& turni) {
 		if (t->max_repeats < 0) {
 			fail("Turno '" + t->descr + "' has a negative max_repeats (" + to_string(t->max_repeats) + ").");
 		}
+		max_ore += t->ore * t->max_people * 7;
 	}
+	int min_ore_lav = 0;
+	for (auto &e : sched.employees) {
+		min_ore_lav += e.min_ore;
+	}
+	if (min_ore_lav > max_ore) {
+		fail("There are not enough jobs to satisfy min ore constraint");
+	}
+
+	cout << max_ore;
 
 	// 2. Every non-facultative turno must be coverable: on any given day at
 	//    most one turno per employee can be worked, so the number of
@@ -359,7 +368,7 @@ int randint(int min, int max) {
 void print_schedule(Schedule& sol) {
 	string day_names[] = { "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN" };
 
-	cout << left << setw(12) << "Employee";
+	cout << left << setw(15) << "Employee";
 	for (int d = 0; d < DAY_COUNT; d++)
 		cout << setw(14) << day_names[d];
 	cout << "Hours" << endl;
@@ -367,7 +376,7 @@ void print_schedule(Schedule& sol) {
 
 	for (size_t i = 0; i < sol.employees.size(); i++) {
 		Employee& emp = sol.employees[i];
-		cout << left << setw(12) << emp.name;
+		cout << left << setw(15) << emp.name;
 		for (int d = 0; d < DAY_COUNT; d++) {
 			string slot = emp.turni[d].turno ? emp.turni[d].turno->descr : "---";
 			if (emp.turni[d].is_constr) slot += "*";
@@ -475,6 +484,9 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 	while (index < total_slots) {
 		int emp_index = index / DAY_COUNT;
 		int day = index % DAY_COUNT;
+		if (day == 0 && emp_index > 0) {
+			if (!sched.employees[emp_index - 1].is_emp_week_valid()) return false;
+		}
 		if (!sched.employees[emp_index].turni[day].is_constr) break;
 		index++;
 	}
@@ -687,7 +699,13 @@ int main() {
 					second_comma = list.find('-', first_comma + 1);
 
 				}
+				prev_ex.push_back(list.substr(first_comma+1));
 
+			}
+			else if(list.size()!=0){
+			
+				prev_ex.push_back(list);
+			
 			}
 
 			first_comma = line.find(']');
@@ -858,12 +876,12 @@ int main() {
 		found = recursion_step(sched, 0, &turni[0], (int)turni.size(), total_slots);
 
 		if (!found) {
-			cout << "No solution found." << endl;
+			cout << " No solution found." << endl;
 			memcpy(&sched, &sched_copy, sizeof(sched));
 			iter_wout_record = 0;
 		}
 		else {
-			cout << "SUCCESS." << endl;
+			cout << "SUCCESS." << endl<<endl;
 		}
 	}
 
