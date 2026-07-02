@@ -42,13 +42,15 @@ public:
 	int max_repeats;
 	bool facultative;
 	int max_people;
+	bool is_circular = false;
+	bool reserved_for_force = false;
 
 	Turno(string description, float h, vector<string> pr_day_excludes, string nxt_day_force, int rep, bool fac, int max_p) : descr(description), ore(h), prev_day_excludes(pr_day_excludes), next_day_force(nxt_day_force), max_repeats(rep), facultative(fac), max_people(max_p) {
 		this->ID = cum_id++;
 		return;
 	}
 
-	bool is_job_assignable(Turno* prev_day, int repeats, int forced_job_repeats) {
+	bool is_job_assignable(Turno* prev_day, int repeats, int forced_job_repeats, int day) {
 
 		if (prev_day == NULL) return true;
 
@@ -61,6 +63,8 @@ public:
 				return this->descr == forced->descr;
 			}
 		}
+
+		if (this->reserved_for_force && (enum days)day != MONDAY) return false;
 
 		for (const auto& i : prev_day_excludes) {
 			if (i == prev_day->descr) return false;
@@ -462,6 +466,21 @@ void save_schedule_csv(Schedule& sol, vector<Turno*>& turni, const string& filen
 	cout << "Schedule saved to '" << filename << "'." << endl;
 }
 
+bool is_next_day_compatible(Employee* emp, Turno* candidate, int day, int total_slots) {
+	if (candidate->next_day_force_turno == nullptr) return true;
+	if (day + 1 >= (int)DAY_COUNT) return true; // no next day (Sunday), nothing to check
+
+	TurnoSlot& next_slot = emp->turni[day + 1];
+	if (!next_slot.is_constr) return true; // next day is free, solver will handle it normally
+
+	Turno* forced = candidate->next_day_force_turno;
+	int forced_repeats_so_far = emp->get_repeats(forced); // NOTE: same repeats-budget caveat as before applies here
+
+	if (forced_repeats_so_far >= forced->max_repeats) return true; // force already exhausted, no constraint
+
+	return next_slot.turno == forced; // next day MUST already be the forced turno
+}
+
 long long nodes_visited = 0;
 int max_index = 0;
 
@@ -528,14 +547,14 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 	// without this the trenino circular checks would be extremely slow as they would not prune early.
 	// if other force jobs have to be added this will have to be removed and rethinked
 	// now is not the time, I have to sleep
-	if (prev_day != nullptr && prev_day->next_day_force != "" && day % 2 == 0 && forced_job_repeats < prev_day->next_day_force_turno->max_repeats) {
+	if (prev_day != nullptr && prev_day->is_circular && day % 2 == 0 && forced_job_repeats < prev_day->next_day_force_turno->max_repeats) {
 		return false;
 	}
 
 	for (int i = 0; i < turn_length; i++) {
 		Turno* candidate = turn_list[order[i]];
 
-		if (!candidate->is_job_assignable(prev_day, emp->get_repeats(candidate), forced_job_repeats)) {
+		if (!candidate->is_job_assignable(prev_day, emp->get_repeats(candidate), forced_job_repeats, day)) {
 			if (DEBUG) {
 				cout << endl << endl << "Tried: " << candidate->descr << endl << "FAILED: is_job_assignable" << endl << endl << endl;
 				//print_schedule(sched);
@@ -555,6 +574,10 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 				cout << endl << endl << "Tried: " << candidate->descr << endl << "FAILED: max ore check" << endl << endl << endl;
 				//print_schedule(sched);
 			}
+			continue;
+		}
+
+		if (!is_next_day_compatible(emp, candidate, day, total_slots)) {
 			continue;
 		}
 
@@ -789,13 +812,26 @@ int main() {
 		}
 	}
 
+	for (auto t : turni) {
+		if (t->next_day_force_turno != nullptr &&
+			t->next_day_force_turno->next_day_force_turno == t) {
+			t->is_circular = true;
+		}
+	}
+
+	for (auto t : turni) {
+		if (t->next_day_force_turno != nullptr && !t->is_circular) {
+			t->next_day_force_turno->reserved_for_force = true;
+		}
+	}
+
 	// Now that all Turno IDs exist, size up the O(1) lookup tables
 	for (auto& emp : sched.employees) {
 		emp.init_repeat_counts(turni.size());
 	}
 	sched.init_turn_counts(turni.size());
 
-	ifstream csv("test1.csv");
+	ifstream csv("test2.csv");
 
 	if (csv.is_open()) {
 
@@ -868,8 +904,10 @@ int main() {
 	bool found = false;
 
 	Schedule sched_copy;
-	
+
 	memcpy(&sched_copy, &sched, sizeof(sched));
+
+	print_schedule(sched_copy);
 	
 	while (!found) {
 
