@@ -9,8 +9,11 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <cstring>
+#include <filesystem>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 #define DEBUG (false)
 #define MAX_ITER (50000)
@@ -204,7 +207,7 @@ bool check_feasibility(Schedule& sched, vector<Turno*>& turni) {
 	auto fail = [&](const string& msg) {
 		cerr << "[FEASIBILITY] " << msg << endl;
 		ok = false;
-	};
+		};
 
 	if (sched.employees.empty()) {
 		fail("No employees were loaded (check setup.txt [ADDETTI] section / file path).");
@@ -232,7 +235,7 @@ bool check_feasibility(Schedule& sched, vector<Turno*>& turni) {
 		max_ore += t->ore * t->max_people * 7;
 	}
 	int min_ore_lav = 0;
-	for (auto &e : sched.employees) {
+	for (auto& e : sched.employees) {
 		min_ore_lav += e.min_ore;
 	}
 	if (min_ore_lav > max_ore) {
@@ -481,12 +484,96 @@ bool is_next_day_compatible(Employee* emp, Turno* candidate, int day, int total_
 	return next_slot.turno == forced; // next day MUST already be the forced turno
 }
 
+// ---------------------------------------------------------------------
+// Failure-reason instrumentation.
+// ---------------------------------------------------------------------
+struct FailureStats {
+	long long emp_week_invalid = 0;          // is_emp_week_valid() failed (min_ore / min_rest)
+	long long job_not_assignable = 0;        // Turno::is_job_assignable() rejected the candidate
+	long long turn_already_taken = 0;        // max_people already reached for that turno/day
+	long long max_ore_exceeded = 0;          // candidate would push employee over max_ore
+	long long next_day_incompatible = 0;     // next-day forzatura constraint violated
+	long long assign_day_failed = 0;         // low-level set_day() failed (redundant safety net on max_ore)
+	long long day_not_filled_correctly = 0;  // a mandatory turno had 0 people on that day
+	long long circular_prune = 0;            // circular forzatura early-prune
+
+	void reset() {
+		emp_week_invalid = 0;
+		job_not_assignable = 0;
+		turn_already_taken = 0;
+		max_ore_exceeded = 0;
+		next_day_incompatible = 0;
+		assign_day_failed = 0;
+		day_not_filled_correctly = 0;
+		circular_prune = 0;
+	}
+
+	long long total() const {
+		return emp_week_invalid + job_not_assignable + turn_already_taken + max_ore_exceeded +
+			next_day_incompatible + assign_day_failed + day_not_filled_correctly + circular_prune;
+	}
+
+	void print(long long iterations) const {
+		vector<pair<string, long long>> items = {
+			{"Weekly hours/rest invalid (is_emp_week_valid)", emp_week_invalid},
+			{"Job not assignable (exclusions/forzatura rules)", job_not_assignable},
+			{"Turno slot already full (max_people reached)", turn_already_taken},
+			{"Weekly max hours exceeded", max_ore_exceeded},
+			{"Next-day forzatura incompatible", next_day_incompatible},
+			{"assign_day rejected (max hours safety net)", assign_day_failed},
+			{"Day not fully covered (mandatory turno missing)", day_not_filled_correctly},
+			{"Circular forzatura early prune", circular_prune}
+		};
+
+		sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+			return a.second > b.second;
+			});
+
+		long long tot = total();
+
+		cout << endl << "==================== FAILURE REPORT ====================" << endl;
+		cout << "No solution found after " << iterations << " stalled iterations." << endl;
+		cout << "Breakdown of rejection reasons encountered while searching (most frequent first):" << endl;
+		for (auto& item : items) {
+			double pct = (tot > 0) ? (100.0 * (double)item.second / (double)tot) : 0.0;
+			cout << "  " << left << setw(50) << item.first
+				<< right << setw(10) << item.second
+				<< "  (" << fixed << setprecision(1) << pct << "%)" << endl;
+		}
+		if (tot > 0) {
+			cout << endl << ">>> Most likely bottleneck: " << items.front().first
+				<< " (" << items.front().second << " hits)" << endl;
+		}
+		cout << "==========================================================" << endl << endl;
+	}
+};
+
+FailureStats g_fail_stats;
+
 long long nodes_visited = 0;
 int max_index = 0;
 
 int iter_wout_record = 0;
 
 vector<vector<int>> g_order_buffers;
+
+// ---------------------------------------------------------------------
+// Versioned "best solutions" folder.
+//
+// A snapshot is written ONLY when a phase produces a complete, fully
+// valid schedule (see the phase loop in main()). max_index is kept only
+// as a stall-detection heuristic (has the search made any progress
+// lately?) and no longer triggers a save on its own.
+// ---------------------------------------------------------------------
+const string g_best_solutions_dir = "best_solutions";
+int g_best_version = 0;
+
+void save_phase_solution(Schedule& sched, vector<Turno*>& turni, int constraints_applied) {
+	g_best_version++;
+	string filename = g_best_solutions_dir + "/v" + to_string(g_best_version) + ".csv";
+	save_schedule_csv(sched, turni, filename);
+	cout << "Saved " << filename << " (" << constraints_applied << " constrained day(s) applied)." << endl;
+}
 
 bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_length, int total_slots) {
 
@@ -504,7 +591,10 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 		int emp_index = index / DAY_COUNT;
 		int day = index % DAY_COUNT;
 		if (day == 0 && emp_index > 0) {
-			if (!sched.employees[emp_index - 1].is_emp_week_valid()) return false;
+			if (!sched.employees[emp_index - 1].is_emp_week_valid()) {
+				g_fail_stats.emp_week_invalid++;
+				return false;
+			}
 		}
 		if (!sched.employees[emp_index].turni[day].is_constr) break;
 		index++;
@@ -512,7 +602,6 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 
 	if (index > max_index) {
 		max_index = index;
-		//print_schedule(sched);
 		iter_wout_record = 0;
 	}
 	else {
@@ -521,7 +610,10 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 
 	// Base case: all slots filled
 	if (index == total_slots) {
-		if (!sched.employees.back().is_emp_week_valid()) return false;
+		if (!sched.employees.back().is_emp_week_valid()) {
+			g_fail_stats.emp_week_invalid++;
+			return false;
+		}
 		return true;
 	}
 
@@ -530,7 +622,10 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 	Employee* emp = &sched.employees[emp_index];
 
 	if (day == 0 && emp_index > 0) {
-		if (!sched.employees[emp_index - 1].is_emp_week_valid()) return false;
+		if (!sched.employees[emp_index - 1].is_emp_week_valid()) {
+			g_fail_stats.emp_week_invalid++;
+			return false;
+		}
 	}
 
 	vector<int>& order = g_order_buffers[index];
@@ -548,6 +643,7 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 	// if other force jobs have to be added this will have to be removed and rethinked
 	// now is not the time, I have to sleep
 	if (prev_day != nullptr && prev_day->is_circular && day % 2 == 0 && forced_job_repeats < prev_day->next_day_force_turno->max_repeats) {
+		g_fail_stats.circular_prune++;
 		return false;
 	}
 
@@ -555,39 +651,33 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 		Turno* candidate = turn_list[order[i]];
 
 		if (!candidate->is_job_assignable(prev_day, emp->get_repeats(candidate), forced_job_repeats, day)) {
-			if (DEBUG) {
-				cout << endl << endl << "Tried: " << candidate->descr << endl << "FAILED: is_job_assignable" << endl << endl << endl;
-				//print_schedule(sched);
-			}
+			g_fail_stats.job_not_assignable++;
 			continue;
 		}
 		if (sched.is_turn_already_taken(candidate, (enum days)day)) {
-			if (DEBUG) {
-				cout << endl << endl << "Tried: " << candidate->descr << endl << "FAILED: is_turn_already_taken" << endl << endl << endl;
-				//print_schedule(sched);
-			}
+			g_fail_stats.turn_already_taken++;
 			continue;
 		}
 
 		if (emp->ore + candidate->ore > emp->max_ore) {
-			if (DEBUG) {
-				cout << endl << endl << "Tried: " << candidate->descr << endl << "FAILED: max ore check" << endl << endl << endl;
-				//print_schedule(sched);
-			}
+			g_fail_stats.max_ore_exceeded++;
 			continue;
 		}
 
 		if (!is_next_day_compatible(emp, candidate, day, total_slots)) {
+			g_fail_stats.next_day_incompatible++;
 			continue;
 		}
 
 		if (!sched.assign_day(emp_index, (enum days)day, candidate, false)) {
+			g_fail_stats.assign_day_failed++;
 			continue;
 		}
 
 		bool ok = true;
 		if (emp_index == (int)sched.employees.size() - 1) {
 			if (!sched.is_day_filled_correctly((enum days)day, turn_list, turn_length)) {
+				g_fail_stats.day_not_filled_correctly++;
 				ok = false;
 			}
 		}
@@ -600,6 +690,40 @@ bool recursion_step(Schedule& sched, int index, Turno** turn_list, int turn_leng
 	}
 
 	return false;
+}
+
+// ---------------------------------------------------------------------
+// Constrained-day list, read from the CSV but NOT applied immediately.
+// Each entry is one (turno, employee, day) cell from the constraints
+// file. The phase loop in main() applies them one at a time, gradually,
+// re-solving the whole schedule from scratch after each addition.
+// ---------------------------------------------------------------------
+struct ConstraintEntry {
+	Turno* turno;
+	size_t emp_index;
+	int day;
+};
+
+// Properly clears a schedule back to "nothing assigned" - replaces the
+// old memcpy-based reset, which was undefined behavior on a struct that
+// holds std::vectors (Schedule/Employee). Plain copy-assignment (used in
+// main()) is the correct, safe way to snapshot/restore now.
+void reset_schedule(Schedule& sched) {
+	for (auto& emp : sched.employees) {
+		for (int d = 0; d < (int)DAY_COUNT; d++) {
+			emp.turni[d].turno = nullptr;
+			emp.turni[d].is_constr = false;
+		}
+		emp.ore = 0;
+		fill(emp.repeat_count.begin(), emp.repeat_count.end(), 0);
+	}
+	for (auto& day_counts : sched.turn_count) {
+		fill(day_counts.begin(), day_counts.end(), 0);
+	}
+}
+
+void apply_constraint(Schedule& sched, const ConstraintEntry& c) {
+	sched.assign_day(c.emp_index, (enum days)c.day, c.turno, true);
 }
 
 
@@ -628,6 +752,7 @@ int main() {
 
 			if (line.substr(0, 7) == "[TURNI]") break;
 			if (line[0] == '[') continue;
+			if (line[0] == ':') continue;
 
 			int first_comma = line.find(',');
 			if (first_comma == string::npos) continue;
@@ -722,13 +847,13 @@ int main() {
 					second_comma = list.find('-', first_comma + 1);
 
 				}
-				prev_ex.push_back(list.substr(first_comma+1));
+				prev_ex.push_back(list.substr(first_comma + 1));
 
 			}
-			else if(list.size()!=0){
-			
+			else if (list.size() != 0) {
+
 				prev_ex.push_back(list);
-			
+
 			}
 
 			first_comma = line.find(']');
@@ -831,6 +956,12 @@ int main() {
 	}
 	sched.init_turn_counts(turni.size());
 
+	// ------------------------------------------------------------------
+	// Read the constrained-days CSV into a flat list WITHOUT applying it.
+	// The phase loop below applies these one at a time, gradually.
+	// ------------------------------------------------------------------
+	vector<ConstraintEntry> g_all_constraints;
+
 	ifstream csv("test2.csv");
 
 	if (csv.is_open()) {
@@ -851,6 +982,8 @@ int main() {
 				fields.push_back(field);
 			}
 
+			if (fields.empty()) continue;
+
 			string turno_name = fields[0];
 
 			// Find the Turno*
@@ -868,7 +1001,7 @@ int main() {
 			// Monday..Sunday
 			for (int day = 0; day < DAY_COUNT; day++) {
 
-				if (day + 2 > fields.size()) continue;
+				if (day + 2 > (int)fields.size()) continue;
 
 				string employee_name = fields[day + 1];
 
@@ -878,7 +1011,7 @@ int main() {
 				// Find employee
 				for (size_t ei = 0; ei < sched.employees.size(); ei++) {
 					if (sched.employees[ei].name == employee_name) {
-						sched.assign_day(ei, (days)day, turno, true);
+						g_all_constraints.push_back({ turno, ei, day });
 						break;
 					}
 				}
@@ -888,11 +1021,12 @@ int main() {
 		csv.close();
 	}
 
-	cout << endl << "VERIFICA FATTIBILITA' ..." << endl;
-	if (!check_feasibility(sched, turni)) {
-		cerr << "Infeasible configuration detected; not running the solver. Fix the issues above and re-run." << endl;
-		return 1;
-	}
+	cout << endl << "Loaded " << g_all_constraints.size() << " constrained-day entrie(s) from test2.csv." << endl;
+	cout << "Solving gradually: phase 0 has zero constraints, then one constrained day is added per phase." << endl << endl;
+
+	// Fresh folder for this run's successful-phase snapshots (v1.csv, v2.csv, ...).
+	fs::create_directories(g_best_solutions_dir);
+	g_best_version = 0;
 
 	int total_slots = DAY_COUNT * (int)sched.employees.size();
 
@@ -901,31 +1035,75 @@ int main() {
 		iota(buf.begin(), buf.end(), 0);
 	}
 
-	bool found = false;
+	const int MAX_STALL_ROUNDS = 200; // random restarts allowed per phase before giving up on it
 
-	Schedule sched_copy;
+	int last_successful_phase = -1;
+	Schedule last_good_schedule;
+	bool have_good_schedule = false;
 
-	memcpy(&sched_copy, &sched, sizeof(sched));
+	for (int applied = 0; applied <= (int)g_all_constraints.size(); applied++) {
 
-	print_schedule(sched_copy);
-	
-	while (!found) {
+		reset_schedule(sched);
+		for (int i = 0; i < applied; i++) {
+			apply_constraint(sched, g_all_constraints[i]);
+		}
 
-		found = recursion_step(sched, 0, &turni[0], (int)turni.size(), total_slots);
+		cout << "==================== PHASE " << applied << " ("
+			<< applied << " constrained day(s) applied) ====================" << endl;
+
+		if (!check_feasibility(sched, turni)) {
+			cout << "Phase " << applied << " is infeasible by the static checks above; stopping here." << endl;
+			break;
+		}
+
+		Schedule sched_baseline = sched; // safe deep copy (proper vector copy, no memcpy)
+
+		max_index = 0;
+		iter_wout_record = 0;
+
+		bool found = false;
+		int stall_rounds = 0;
+
+		while (!found && stall_rounds < MAX_STALL_ROUNDS) {
+
+			g_fail_stats.reset();
+
+			found = recursion_step(sched, 0, &turni[0], (int)turni.size(), total_slots);
+
+			if (!found) {
+				stall_rounds++;
+				cout << " No solution found (restart " << stall_rounds << "/" << MAX_STALL_ROUNDS << ")." << endl;
+				sched = sched_baseline; // restore this phase's starting point (constraints intact)
+				iter_wout_record = 0;
+				max_index = 0;
+			}
+		}
 
 		if (!found) {
-			cout << " No solution found." << endl;
-			memcpy(&sched, &sched_copy, sizeof(sched));
-			iter_wout_record = 0;
+			cout << "Could not find a full solution for phase " << applied << " after "
+				<< MAX_STALL_ROUNDS << " restart attempts. Stopping; the last saved snapshot ("
+				<< "v" << g_best_version << ".csv) is the deepest gradually-constrained solution found." << endl;
+			g_fail_stats.print(iter_wout_record);
+			sched = sched_baseline;
+			break;
 		}
-		else {
-			cout << "SUCCESS." << endl<<endl;
-		}
+
+		cout << "SUCCESS on phase " << applied << "." << endl;
+		print_schedule(sched);
+		save_phase_solution(sched, turni, applied);
+		last_successful_phase = applied;
+		last_good_schedule = sched;
+		have_good_schedule = true;
 	}
 
-	print_schedule(sched);
-
-	save_schedule_csv(sched, turni, "schedule_output.csv");
+	if (have_good_schedule) {
+		cout << endl << "Best successful phase: " << last_successful_phase << " constrained day(s), saved as v"
+			<< g_best_version << ".csv in " << g_best_solutions_dir << "/." << endl;
+		save_schedule_csv(last_good_schedule, turni, "schedule_output.csv");
+	}
+	else {
+		cout << endl << "No phase produced a successful schedule (not even with zero constraints)." << endl;
+	}
 
 	return 0;
 

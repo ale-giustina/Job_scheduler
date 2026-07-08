@@ -1,0 +1,40 @@
+Turno,MON,TUE,WED,THU,FRI,SAT,SUN
+CS1,Nicole B.,Martino M.,Nicole B.,Jacopo B.*,Anna G.*,Amedeo T.,Nicolo' F.
+CS2,Nicolo' F.,Nicolo' F.,Jacopo B.,Amedeo T.,Sara R.,Clara,Alberto D.
+CS3,Martino M.,Alessandro G.,Clara,Greta G.,Sofia C.,Carlotta B.,Christian M.
+PV+CS,Alessandro G.,Elisabetta D.,Elisabetta D.,Nicolo' F.,Jacopo B.,Martino M.,Elisabetta D.
+PV,Mario S.*,Mario S.*,Mario S.*,Mario S.*,Martino M.*,Mario S.*,Anna G.
+TRENINO1,Christian M.,Sebastian P.,Eleonora B.,Carlotta B.,Alberto D.,Elisabetta D.,Samuele A.
+TRENINO2,Sebastian P.,Christian M.,Carlotta B.,Eleonora B.,Elisabetta D.,Alberto D.,Sofia C.
+PM1,Sara R.,Simone C.,Simone C.,Simone C.,Simone C.,Nicolo' F.,Sara R.
+PM2,Samuele A.,Greta G.,Nicolo' F.,Martino M.,Amedeo T.,Nicole B.,Greta G.
+PR,Carlotta B.,Anna G.,Alberto D.,Alberto D.,Christian M.,Jacopo B.,Carlotta B.
+RAGADA,Sofia C.,Sara R.,Alessandro G.,Christian M.,Alessandro G.,Greta G.,
+CARET,Alberto D.,Amedeo T.,Greta G.,Alessandro G.,Eleonora B.,Anna G.,Martino M.
+BEDOLE,Amedeo T.,Jacopo B.,Samuele A.,Sebastian P.,Nicole B.,Samuele A.,Eleonora B.
+CAMBI,Jacopo B.,Samuele A.,Sebastian P.,Nicole B.,Samuele A.,Eleonora B.,Alessandro G.
+GEOPARK,Simone C.,Sofia C.,Amedeo T.,Anna G.,Carlotta B.,Christian M.,Sebastian P.
+RESP,Greta G.,Nicole B.,Sofia C.,Sofia C.,Clara,Sara R.,Clara
+RIPOSO,Anna G.; Eleonora B.; Clara; Elisabetta D.,Carlotta B.; Eleonora B.; Clara; Alberto D.,Anna G.; Martino M.; Sara R.; Christian M.,Sara R.; Clara; Samuele A.; Elisabetta D.,Mario S.; Greta G.; Nicolo' F.; Sebastian P.,Alessandro G.; Simone C.; Sofia C.; Sebastian P.,Mario S.; Nicole B.; Jacopo B.; Simone C.; Amedeo T.
+
+Employee,MON,TUE,WED,THU,FRI,SAT,SUN,Hours
+Carlotta B.,PR,RIPOSO,TRENINO2,TRENINO1,GEOPARK,CS3,PR,41.5
+Mario S.,PV*,PV*,PV*,PV*,RIPOSO,PV*,RIPOSO,40
+Alessandro G.,PV+CS,CS3,RAGADA,CARET,RAGADA,RIPOSO,CAMBI,39
+Anna G.,RIPOSO,PR,RIPOSO,GEOPARK,CS1*,CARET,PV,33.5
+Nicole B.,CS1,RESP,CS1,CAMBI,BEDOLE,PM2,RIPOSO,37
+Jacopo B.,CAMBI,BEDOLE,CS2,CS1*,PV+CS,PR,RIPOSO,40
+Martino M.,CS3,CS1,RIPOSO,PM2,PV*,PV+CS,CARET,39
+Simone C.,GEOPARK,PM1,PM1,PM1,PM1,RIPOSO,RIPOSO,38.5
+Sara R.,PM1,RAGADA,RIPOSO,RIPOSO,CS2,RESP,PM1,37
+Amedeo T.,BEDOLE,CARET,GEOPARK,CS2,PM2,CS1,RIPOSO,38.5
+Christian M.,TRENINO1,TRENINO2,RIPOSO,RAGADA,PR,GEOPARK,CS3,40.5
+Greta G.,RESP,PM2,CARET,CS3,RIPOSO,RAGADA,PM2,38
+Nicolo' F.,CS2,CS2,PM2,PV+CS,RIPOSO,PM1,CS1,39
+Sofia C.,RAGADA,GEOPARK,RESP,RESP,CS3,RIPOSO,TRENINO2,42
+Eleonora B.,RIPOSO,RIPOSO,TRENINO1,TRENINO2,CARET,CAMBI,BEDOLE,35
+Clara,RIPOSO,RIPOSO,CS3,RIPOSO,RESP,CS2,RESP,30
+Sebastian P.,TRENINO2,TRENINO1,CAMBI,BEDOLE,RIPOSO,RIPOSO,GEOPARK,34.5
+Alberto D.,CARET,RIPOSO,PR,PR,TRENINO1,TRENINO2,CS2,42
+Samuele A.,PM2,CAMBI,BEDOLE,RIPOSO,CAMBI,BEDOLE,TRENINO1,40.5
+Elisabetta D.,RIPOSO,PV+CS,PV+CS,RIPOSO,TRENINO2,TRENINO1,PV+CS,35
