@@ -42,7 +42,7 @@ void print_usage(const char* prog_name) {
 		"  -c, --constraints <file>  CSV of pre-assigned (turno, employee, day) entries (default: test2.csv)\n"
 		"  -o, --output <file>       Final schedule CSV to write (default: schedule_output.csv)\n"
 		"  -d, --best-dir <dir>      Folder for per-phase snapshots (default: best_solutions)\n"
-		"      --max-stall <n>       Random restarts allowed per phase before giving up (default: 200)\n"
+		"      --max-stall <n>       Random restarts allowed per phase before giving up (default: 300)\n"
 		"      --max-iter <n>        Stalled search iterations before a restart (default: 50000)\n"
 		"  -v, --verbose             Print detailed loading tables, per-node progress, and failure reports\n"
 		"  -h, --help                Show this help message and exit\n"
